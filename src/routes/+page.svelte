@@ -12,10 +12,22 @@
 
 	let sourcePath = "X:\\Innhealth\\Gait\\L";
 	let destinationPath = "X:\\Innhealth\\Gait\\IH-0777-B";
+	let selectedSubfolder = "Gait-4K"; // Default selection
+	let selectedSide = "L"; // Default side selection
 	let files: FileInfo[] = [];
 	let result = "";
 	let loading = false;
 	let selectedFiles: Set<string> = new Set(); // Track multiple selected files by path
+
+	const subfolderOptions = [
+		"Calibration-Posture",
+		"Gait-4K", 
+		"Gait-720p",
+		"Sitting",
+		"Timedupandgo3m"
+	];
+
+	const sideOptions = ["L", "R"];
 
 	async function listDirectory() {
 		try {
@@ -41,11 +53,23 @@
 			let errorCount = 0;
 			const errors: string[] = [];
 
+			// Create full destination path with selected subfolder
+			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
+			
+			// Extract folder name from destination path
+			const folderName = destinationPath.split('\\').pop() || '';
+
 			for (const filePath of selectedFiles) {
 				const file = files.find(f => f.path === filePath);
 				if (file && !file.is_dir) {
 					try {
-						const destPath = `${destinationPath}\\${file.name}`;
+						// Get file extension
+						const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
+						
+						// Create new filename with side prefix, folder name, and subfolder suffix
+						const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+						const destPath = `${fullDestinationPath}\\${newFileName}`;
+						
 						await invoke("move_file", { 
 							sourcePath: file.path, 
 							destinationPath: destPath
@@ -62,7 +86,7 @@
 			selectedFiles.clear();
 
 			if (errorCount === 0) {
-				result = `Successfully moved ${successCount} file(s) to ${destinationPath}`;
+				result = `Successfully moved ${successCount} file(s) to ${fullDestinationPath}`;
 			} else {
 				result = `Moved ${successCount} file(s), ${errorCount} failed:\n${errors.join('\n')}`;
 			}
@@ -88,11 +112,23 @@
 			let errorCount = 0;
 			const errors: string[] = [];
 
+			// Create full destination path with selected subfolder
+			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
+			
+			// Extract folder name from destination path
+			const folderName = destinationPath.split('\\').pop() || '';
+
 			for (const filePath of selectedFiles) {
 				const file = files.find(f => f.path === filePath);
 				if (file && !file.is_dir) {
 					try {
-						const destPath = `${destinationPath}\\${file.name}`;
+						// Get file extension
+						const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
+						
+						// Create new filename with side prefix, folder name, and subfolder suffix
+						const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+						const destPath = `${fullDestinationPath}\\${newFileName}`;
+						
 						await invoke("copy_file", { 
 							sourcePath: file.path, 
 							destinationPath: destPath
@@ -106,7 +142,7 @@
 			}
 
 			if (errorCount === 0) {
-				result = `Successfully copied ${successCount} file(s) to ${destinationPath}`;
+				result = `Successfully copied ${successCount} file(s) to ${fullDestinationPath}`;
 			} else {
 				result = `Copied ${successCount} file(s), ${errorCount} failed:\n${errors.join('\n')}`;
 			}
@@ -126,7 +162,18 @@
 
 		try {
 			loading = true;
-			const destPath = `${destinationPath}\\${selectedFile.name}`;
+			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
+			
+			// Extract folder name from destination path
+			const folderName = destinationPath.split('\\').pop() || '';
+			
+			// Get file extension
+			const fileExtension = selectedFile.name.substring(selectedFile.name.lastIndexOf('.'));
+			
+			// Create new filename with side prefix, folder name, and subfolder suffix
+			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			const destPath = `${fullDestinationPath}\\${newFileName}`;
+			
 			result = await invoke("move_file", { 
 				sourcePath: selectedFile.path, 
 				destinationPath: destPath
@@ -149,7 +196,18 @@
 
 		try {
 			loading = true;
-			const destPath = `${destinationPath}\\${selectedFile.name}`;
+			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
+			
+			// Extract folder name from destination path
+			const folderName = destinationPath.split('\\').pop() || '';
+			
+			// Get file extension
+			const fileExtension = selectedFile.name.substring(selectedFile.name.lastIndexOf('.'));
+			
+			// Create new filename with side prefix, folder name, and subfolder suffix
+			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			const destPath = `${fullDestinationPath}\\${newFileName}`;
+			
 			result = await invoke("copy_file", { 
 				sourcePath: selectedFile.path, 
 				destinationPath: destPath
@@ -230,6 +288,46 @@
 		<div class="form-group">
 			<label for="destination">Destination Directory:</label>
 			<input id="destination" bind:value={destinationPath} placeholder="Enter destination directory path" />
+		</div>
+
+		<div class="form-group">
+			<label>Side Selection:</label>
+			<div class="side-options">
+				{#each sideOptions as option}
+					<label class="radio-option side-radio">
+						<input 
+							type="radio" 
+							name="side" 
+							value={option} 
+							bind:group={selectedSide}
+						/>
+						<span class="radio-label">{option}</span>
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label>Destination Subfolder:</label>
+			<div class="subfolder-options">
+				{#each subfolderOptions as option}
+					<label class="radio-option">
+						<input 
+							type="radio" 
+							name="subfolder" 
+							value={option} 
+							bind:group={selectedSubfolder}
+						/>
+						<span class="radio-label">{option}</span>
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div class="destination-preview">
+			<strong>Full Destination:</strong> {destinationPath}\{selectedSubfolder}
+			<br>
+			<strong>File Naming Pattern:</strong> {selectedSide}-{destinationPath.split('\\').pop()}-{selectedSubfolder}.MOV
 		</div>
 
 		<div class="buttons">
@@ -340,6 +438,72 @@
 		border-radius: 4px;
 		font-family: monospace;
 		font-size: 0.9rem;
+	}
+
+	.side-options {
+		display: flex;
+		gap: 1rem;
+		margin-top: 0.5rem;
+	}
+
+	.side-radio {
+		min-width: 80px;
+		justify-content: center;
+		font-size: 1.2rem;
+		font-weight: bold;
+	}
+
+	.subfolder-options {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		margin-top: 0.5rem;
+	}
+
+	.radio-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		padding: 0.5rem 1rem;
+		background: white;
+		border: 2px solid #e9ecef;
+		border-radius: 6px;
+		transition: all 0.2s;
+		font-weight: normal;
+		margin: 0;
+	}
+
+	.radio-option:hover {
+		border-color: #007acc;
+		background: #f8f9fa;
+	}
+
+	.radio-option input[type="radio"] {
+		width: auto;
+		margin: 0;
+		cursor: pointer;
+	}
+
+	.radio-option input[type="radio"]:checked + .radio-label {
+		color: #007acc;
+		font-weight: 600;
+	}
+
+	.radio-option input[type="radio"]:checked {
+		accent-color: #007acc;
+	}
+
+	.destination-preview {
+		margin: 1rem 0;
+		padding: 0.75rem;
+		background: #e3f2fd;
+		border-radius: 4px;
+		border: 1px solid #007acc;
+		color: #007acc;
+		font-family: monospace;
+		font-size: 0.9rem;
+		line-height: 1.4;
 	}
 
 	.buttons {
