@@ -1,10 +1,62 @@
 use std::path::Path;
 use std::fs;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileInfo {
+    name: String,
+    path: String,
+    is_dir: bool,
+    size: Option<u64>,
+    modified: Option<u64>,
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+async fn list_directory(dir_path: String) -> Result<Vec<FileInfo>, String> {
+    let path = Path::new(&dir_path);
+    
+    if !path.exists() {
+        return Err(format!("Directory does not exist: {}", dir_path));
+    }
+    
+    if !path.is_dir() {
+        return Err(format!("Path is not a directory: {}", dir_path));
+    }
+    
+    let mut files = Vec::new();
+    
+    match fs::read_dir(path) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let metadata = entry.metadata().ok();
+                    let size = metadata.as_ref().and_then(|m| if m.is_file() { Some(m.len()) } else { None });
+                    let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+                    let modified = metadata.as_ref().and_then(|m| {
+                        m.modified().ok().and_then(|t| {
+                            t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+                        })
+                    });
+                    
+                    files.push(FileInfo {
+                        name: entry.file_name().to_string_lossy().to_string(),
+                        path: entry.path().to_string_lossy().to_string(),
+                        is_dir,
+                        size,
+                        modified,
+                    });
+                }
+            }
+            Ok(files)
+        }
+        Err(e) => Err(format!("Failed to read directory: {}", e))
+    }
 }
 
 #[tauri::command]
@@ -110,6 +162,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            list_directory,
             move_file,
             copy_file,
             file_exists,
