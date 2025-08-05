@@ -57,14 +57,23 @@
 					
 					// Generate thumbnails asynchronously
 					generateVideoThumbnails(file.path, fileInfo.name).then(thumbnails => {
-						files = files.map(f => 
-							f.path === file.path 
-								? { ...f, thumbnails, isGeneratingThumbnail: false, currentFrameIndex: 0 }
-								: f
-						);
-						
-						// Start frame cycling for this video
-						startFrameCycling(file.path);
+						if (thumbnails.length > 0) {
+							files = files.map(f => 
+								f.path === file.path 
+									? { ...f, thumbnails, isGeneratingThumbnail: false, currentFrameIndex: 0 }
+									: f
+							);
+							
+							// Start frame cycling for this video
+							startFrameCycling(file.path);
+						} else {
+							// No thumbnails generated, show error state
+							files = files.map(f => 
+								f.path === file.path 
+									? { ...f, thumbnailError: true, isGeneratingThumbnail: false }
+									: f
+							);
+						}
 					}).catch(error => {
 						console.warn('Failed to generate thumbnails for', file.name, error);
 						files = files.map(f => 
@@ -85,97 +94,30 @@
 	}
 
 	async function generateVideoThumbnails(videoPath: string, fileName: string): Promise<string[]> {
-		return new Promise(async (resolve, reject) => {
-			try {
-				// Read the video file as base64 from the backend
-				const base64Data = await invoke("read_video_file", { filePath: videoPath });
-				
-				// Create a blob URL from the base64 data
-				const binaryString = atob(base64Data as string);
-				const bytes = new Uint8Array(binaryString.length);
-				for (let i = 0; i < binaryString.length; i++) {
-					bytes[i] = binaryString.charCodeAt(i);
+		try {
+			// Use the backend to generate thumbnails using ffmpeg
+			const thumbnails = await invoke("generate_video_thumbnails", { filePath: videoPath }) as string[];
+			
+			// Convert base64 thumbnails to data URLs for display
+			const validThumbnails = thumbnails.map(thumbnail => {
+				if (thumbnail && thumbnail.trim() !== '') {
+					return `data:image/jpeg;base64,${thumbnail}`;
 				}
-				const blob = new Blob([bytes], { type: 'video/mp4' });
-				const videoUrl = URL.createObjectURL(blob);
-				
-				const video = document.createElement('video');
-				const canvas = document.createElement('canvas');
-				const ctx = canvas.getContext('2d');
-				
-				if (!ctx) {
-					URL.revokeObjectURL(videoUrl);
-					reject(new Error('Canvas not supported'));
-					return;
-				}
-
-				const cleanup = () => {
-					URL.revokeObjectURL(videoUrl);
-					video.remove();
-				};
-
-				const timeout = setTimeout(() => {
-					cleanup();
-					reject(new Error('Timeout'));
-				}, 30000); // 30 second timeout
-
-				const thumbnails: string[] = [];
-				let currentFrameIndex = 0;
-				const framePercentages = [10, 20, 30, 40, 50, 60, 70, 80, 90, 95]; // 10 frames at different percentages
-
-				const captureFrame = () => {
-					try {
-						ctx.drawImage(video, 0, 0);
-						const dataURL = canvas.toDataURL('image/jpeg', 0.6);
-						thumbnails.push(dataURL);
-						
-						currentFrameIndex++;
-						
-						if (currentFrameIndex < framePercentages.length) {
-							// Seek to next frame
-							const percentage = framePercentages[currentFrameIndex] / 100;
-							video.currentTime = video.duration * percentage;
-						} else {
-							// All frames captured
-							clearTimeout(timeout);
-							cleanup();
-							resolve(thumbnails);
-						}
-					} catch (error) {
-						clearTimeout(timeout);
-						cleanup();
-						reject(error);
-					}
-				};
-
-				video.addEventListener('loadedmetadata', () => {
-					canvas.width = video.videoWidth;
-					canvas.height = video.videoHeight;
-					
-					// Start with first frame at 10%
-					const percentage = framePercentages[0] / 100;
-					video.currentTime = video.duration * percentage;
-				});
-
-				video.addEventListener('seeked', captureFrame);
-
-				video.addEventListener('error', () => {
-					clearTimeout(timeout);
-					cleanup();
-					reject(new Error('Video load failed'));
-				});
-
-				// Important: Set properties before src
-				video.muted = true;
-				video.playsInline = true;
-				video.preload = 'metadata';
-				
-				// Set source last
-				video.src = videoUrl;
-			} catch (error) {
-				reject(error);
+				return '';
+			}).filter(thumbnail => thumbnail !== '');
+			
+			// If no valid thumbnails were generated, return empty array
+			if (validThumbnails.length === 0) {
+				console.warn('No valid thumbnails generated for:', fileName);
+				return [];
 			}
-		});
+			
+			return validThumbnails;
+		} catch (error) {
+			console.warn('Failed to generate thumbnails:', error);
+			// Return empty array instead of throwing error
+			return [];
+		}
 	}
 
 	function startFrameCycling(videoPath: string) {
@@ -603,7 +545,8 @@
 											<line x1="15" y1="9" x2="9" y2="15"/>
 											<line x1="9" y1="9" x2="15" y2="15"/>
 										</svg>
-										<span>Preview failed</span>
+										<span>FFmpeg not installed</span>
+										<span class="error-detail">Install FFmpeg for video previews</span>
 										<button class="retry-btn" on:click={() => retryThumbnail(file.path)}>Retry</button>
 									</div>
 								{:else if file.isGeneratingThumbnail}
@@ -920,6 +863,12 @@
 	.thumbnail.error {
 		background: #ffe6e6;
 		color: #cc0000;
+	}
+	
+	.error-detail {
+		font-size: 10px;
+		opacity: 0.8;
+		text-align: center;
 	}
 
 	.thumbnail.placeholder {

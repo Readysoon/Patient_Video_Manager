@@ -2,6 +2,7 @@ use std::path::Path;
 use std::fs;
 use serde::{Deserialize, Serialize};
 use base64::{Engine as _, engine::general_purpose};
+use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileInfo {
@@ -126,6 +127,17 @@ async fn read_video_file(file_path: String) -> Result<String, String> {
     if !path.exists() { return Err(format!("File does not exist: {}", file_path)); }
     if !path.is_file() { return Err(format!("Path is not a file: {}", file_path)); }
     
+    // Check file size first to avoid loading huge files
+    let metadata = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) => return Err(format!("Failed to get file metadata: {}", e))
+    };
+    
+    // Limit to files smaller than 50MB to prevent memory issues
+    if metadata.len() > 50 * 1024 * 1024 {
+        return Err("File too large for thumbnail generation (max 50MB)".to_string());
+    }
+    
     match fs::read(path) {
         Ok(data) => {
             let base64_data = general_purpose::STANDARD.encode(&data);
@@ -133,6 +145,131 @@ async fn read_video_file(file_path: String) -> Result<String, String> {
         },
         Err(e) => Err(format!("Failed to read file: {}", e))
     }
+}
+
+#[tauri::command]
+async fn generate_video_thumbnails(file_path: String) -> Result<Vec<String>, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() { return Err(format!("File does not exist: {}", file_path)); }
+    if !path.is_file() { return Err(format!("Path is not a file: {}", file_path)); }
+    
+    // Check if ffmpeg is available
+    let ffmpeg_check = Command::new("ffmpeg").arg("-version").output();
+    if ffmpeg_check.is_err() {
+        // FFmpeg not available - return empty thumbnails with a message
+        println!("FFmpeg not found - thumbnails will not be generated");
+        return Ok(vec!["".to_string(); 5]);
+    }
+    
+    // Check if ffprobe is available
+    let ffprobe_check = Command::new("ffprobe").arg("-version").output();
+    if ffprobe_check.is_err() {
+        // FFprobe not available - return empty thumbnails with a message
+        println!("FFprobe not found - thumbnails will not be generated");
+        return Ok(vec!["".to_string(); 5]);
+    }
+    
+    // Get video duration
+    let duration_output = Command::new("ffprobe")
+        .args(&[
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            &file_path
+        ])
+        .output();
+    
+    let duration_str = match duration_output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                println!("FFprobe failed: {}", stderr);
+                return Ok(vec!["".to_string(); 5]);
+            }
+            stdout.trim().to_string()
+        },
+        Err(e) => {
+            println!("FFprobe error: {}", e);
+            return Ok(vec!["".to_string(); 5]);
+        },
+    };
+    
+    let duration: f64 = match duration_str.parse() {
+        Ok(d) => {
+            if d <= 0.0 {
+                println!("Invalid duration: {}", d);
+                return Ok(vec!["".to_string(); 5]);
+            }
+            d
+        },
+        Err(_) => {
+            println!("Could not parse duration: '{}'", duration_str);
+            return Ok(vec!["".to_string(); 5]);
+        },
+    };
+    
+    // Generate thumbnails at different timestamps
+    let timestamps = vec![duration * 0.1, duration * 0.2, duration * 0.3, duration * 0.4, duration * 0.5];
+    let mut thumbnails = Vec::new();
+    
+    for (_i, timestamp) in timestamps.iter().enumerate() {
+        let frame_output = Command::new("ffmpeg")
+            .args(&[
+                "-ss", &timestamp.to_string(),
+                "-i", &file_path,
+                "-vframes", "1",
+                "-f", "mjpeg",
+                "-vf", "scale=320:240",
+                "-q:v", "2",
+                "-y", // Overwrite output
+                "-" // Output to stdout
+            ])
+            .output();
+        
+        match frame_output {
+            Ok(output) => {
+                if output.status.success() && !output.stdout.is_empty() {
+                    let base64_data = general_purpose::STANDARD.encode(&output.stdout);
+                    thumbnails.push(base64_data);
+                } else {
+                    // If frame extraction fails, try a simpler approach
+                    let simple_output = Command::new("ffmpeg")
+                        .args(&[
+                            "-ss", &timestamp.to_string(),
+                            "-i", &file_path,
+                            "-vframes", "1",
+                            "-f", "image2",
+                            "-vf", "scale=320:240",
+                            "-y",
+                            "-"
+                        ])
+                        .output();
+                    
+                    match simple_output {
+                        Ok(simple_result) => {
+                            if simple_result.status.success() && !simple_result.stdout.is_empty() {
+                                let base64_data = general_purpose::STANDARD.encode(&simple_result.stdout);
+                                thumbnails.push(base64_data);
+                            } else {
+                                // If still fails, add empty string
+                                thumbnails.push("".to_string());
+                            }
+                        },
+                        Err(_) => {
+                            thumbnails.push("".to_string());
+                        }
+                    }
+                }
+            },
+            Err(_) => {
+                // If frame extraction fails, add a placeholder
+                thumbnails.push("".to_string());
+            }
+        }
+    }
+    
+    Ok(thumbnails)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -146,7 +283,8 @@ pub fn run() {
             copy_file,
             file_exists,
             get_file_info,
-            read_video_file
+            read_video_file,
+            generate_video_thumbnails
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
