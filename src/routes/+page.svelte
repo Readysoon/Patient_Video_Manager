@@ -21,8 +21,10 @@
 	let files: FileInfo[] = [];
 	let result = "";
 	let loading = false;
-	let selectedFiles: Set<string> = new Set(); // Track multiple selected files by path
+	let selectedFile: string | null = null; // Track single selected file by path
 	let frameIntervals = new Map<string, number>();
+	let sortBy = "name"; // Default sort by name
+	let sortDirection = "asc"; // Default sort direction
 
 	const subfolderOptions = [
 		"Calibration-Posture",
@@ -33,6 +35,12 @@
 	];
 
 	const sideOptions = ["L", "R"];
+	
+	const sortOptions = [
+		{ value: "name", label: "Name" },
+		{ value: "modified", label: "Last Modified" },
+		{ value: "size", label: "File Size" }
+	];
 
 	async function listDirectory() {
 		try {
@@ -91,6 +99,9 @@
 		} finally {
 			loading = false;
 		}
+		
+		// Sort files after loading
+		sortFiles();
 	}
 
 	async function generateVideoThumbnails(videoPath: string, fileName: string): Promise<string[]> {
@@ -149,55 +160,42 @@
 		}
 	}
 
-	async function moveSelectedFiles() {
-		if (selectedFiles.size === 0) {
-			result = "Please select at least one file first";
+	async function moveSelectedFile() {
+		if (!selectedFile) {
+			result = "Please select a file first";
 			return;
 		}
 
 		try {
 			loading = true;
-			let successCount = 0;
-			let errorCount = 0;
-			const errors: string[] = [];
+			const file = files.find(f => f.path === selectedFile);
+			if (!file || file.is_dir) {
+				result = "Please select a valid file";
+				return;
+			}
 
 			// Create full destination path with selected subfolder
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
 			
 			// Extract folder name from destination path
 			const folderName = destinationPath.split('\\').pop() || '';
-
-			for (const filePath of selectedFiles) {
-				const file = files.find(f => f.path === filePath);
-				if (file && !file.is_dir) {
-					try {
-						// Get file extension
-						const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
-						
-						// Create new filename with side prefix, folder name, and subfolder suffix
-						const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
-						const destPath = `${fullDestinationPath}\\${newFileName}`;
-						
-						await invoke("move_file", { 
-							sourcePath: file.path, 
-							destinationPath: destPath
-						});
-						successCount++;
-					} catch (e) {
-						errorCount++;
-						errors.push(`${file.name}: ${e}`);
-					}
-				}
-			}
-
+			
+			// Get file extension
+			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
+			
+			// Create new filename with side prefix, folder name, and subfolder suffix
+			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			const destPath = `${fullDestinationPath}\\${newFileName}`;
+			
+			await invoke("move_file", { 
+				sourcePath: file.path, 
+				destinationPath: destPath
+			});
+			
 			// Clear selection after moving
-			selectedFiles.clear();
+			selectedFile = null;
 
-			if (errorCount === 0) {
-				result = `Successfully moved ${successCount} file(s) to ${fullDestinationPath}`;
-			} else {
-				result = `Moved ${successCount} file(s), ${errorCount} failed:\n${errors.join('\n')}`;
-			}
+			result = `Successfully moved ${file.name} to ${fullDestinationPath}`;
 
 			// Refresh the list after moving
 			await listDirectory();
@@ -208,52 +206,39 @@
 		}
 	}
 
-	async function copySelectedFiles() {
-		if (selectedFiles.size === 0) {
-			result = "Please select at least one file first";
+	async function copySelectedFile() {
+		if (!selectedFile) {
+			result = "Please select a file first";
 			return;
 		}
 
 		try {
 			loading = true;
-			let successCount = 0;
-			let errorCount = 0;
-			const errors: string[] = [];
+			const file = files.find(f => f.path === selectedFile);
+			if (!file || file.is_dir) {
+				result = "Please select a valid file";
+				return;
+			}
 
 			// Create full destination path with selected subfolder
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
 			
 			// Extract folder name from destination path
 			const folderName = destinationPath.split('\\').pop() || '';
-
-			for (const filePath of selectedFiles) {
-				const file = files.find(f => f.path === filePath);
-				if (file && !file.is_dir) {
-					try {
-						// Get file extension
-						const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
-						
-						// Create new filename with side prefix, folder name, and subfolder suffix
-						const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
-						const destPath = `${fullDestinationPath}\\${newFileName}`;
-						
-						await invoke("copy_file", { 
-							sourcePath: file.path, 
-							destinationPath: destPath
-						});
-						successCount++;
-					} catch (e) {
-						errorCount++;
-						errors.push(`${file.name}: ${e}`);
-					}
-				}
-			}
-
-			if (errorCount === 0) {
-				result = `Successfully copied ${successCount} file(s) to ${fullDestinationPath}`;
-			} else {
-				result = `Copied ${successCount} file(s), ${errorCount} failed:\n${errors.join('\n')}`;
-			}
+			
+			// Get file extension
+			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
+			
+			// Create new filename with side prefix, folder name, and subfolder suffix
+			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			const destPath = `${fullDestinationPath}\\${newFileName}`;
+			
+			await invoke("copy_file", { 
+				sourcePath: file.path, 
+				destinationPath: destPath
+			});
+			
+			result = `Successfully copied ${file.name} to ${fullDestinationPath}`;
 		} catch (e) {
 			result = `Error: ${e}`;
 		} finally {
@@ -262,9 +247,14 @@
 	}
 
 	async function moveFile() {
-		const selectedFile = files.find(f => f.path === Array.from(selectedFiles)[0]);
 		if (!selectedFile) {
 			result = "Please select a file first";
+			return;
+		}
+
+		const file = files.find(f => f.path === selectedFile);
+		if (!file) {
+			result = "Please select a valid file";
 			return;
 		}
 
@@ -276,14 +266,14 @@
 			const folderName = destinationPath.split('\\').pop() || '';
 			
 			// Get file extension
-			const fileExtension = selectedFile.name.substring(selectedFile.name.lastIndexOf('.'));
+			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
 			
 			// Create new filename with side prefix, folder name, and subfolder suffix
 			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
 			result = await invoke("move_file", { 
-				sourcePath: selectedFile.path, 
+				sourcePath: file.path, 
 				destinationPath: destPath
 			});
 			// Refresh the list after moving
@@ -296,9 +286,14 @@
 	}
 
 	async function copyFile() {
-		const selectedFile = files.find(f => f.path === Array.from(selectedFiles)[0]);
 		if (!selectedFile) {
 			result = "Please select a file first";
+			return;
+		}
+
+		const file = files.find(f => f.path === selectedFile);
+		if (!file) {
+			result = "Please select a valid file";
 			return;
 		}
 
@@ -310,14 +305,14 @@
 			const folderName = destinationPath.split('\\').pop() || '';
 			
 			// Get file extension
-			const fileExtension = selectedFile.name.substring(selectedFile.name.lastIndexOf('.'));
+			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
 			
 			// Create new filename with side prefix, folder name, and subfolder suffix
 			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
 			result = await invoke("copy_file", { 
-				sourcePath: selectedFile.path, 
+				sourcePath: file.path, 
 				destinationPath: destPath
 			});
 		} catch (e) {
@@ -339,25 +334,13 @@
 		}
 	}
 
-	function toggleFileSelection(file: FileInfo) {
-		if (selectedFiles.has(file.path)) {
-			selectedFiles.delete(file.path);
-		} else {
-			selectedFiles.add(file.path);
-		}
-		selectedFiles = selectedFiles; // Trigger reactivity
-		result = `Selected ${selectedFiles.size} file(s)`;
-	}
-
-	function selectAllFiles() {
-		const videoFiles = files.filter(f => !f.is_dir && f.name.toLowerCase().includes('.mov'));
-		selectedFiles = new Set(videoFiles.map(f => f.path));
-		result = `Selected all ${selectedFiles.size} video files`;
+	function selectFile(file: FileInfo) {
+		selectedFile = file.path;
+		result = `Selected: ${file.name}`;
 	}
 
 	function clearSelection() {
-		selectedFiles.clear();
-		selectedFiles = selectedFiles; // Trigger reactivity
+		selectedFile = null;
 		result = "Selection cleared";
 	}
 
@@ -415,6 +398,33 @@
 		}
 	}
 
+	function sortFiles() {
+		if (sortBy === "name") {
+			files = files.sort((a, b) => {
+				const comparison = a.name.localeCompare(b.name);
+				return sortDirection === "asc" ? comparison : -comparison;
+			});
+		} else if (sortBy === "modified") {
+			files = files.sort((a, b) => {
+				const aTime = a.modified || 0;
+				const bTime = b.modified || 0;
+				return sortDirection === "asc" ? aTime - bTime : bTime - aTime;
+			});
+		} else if (sortBy === "size") {
+			files = files.sort((a, b) => {
+				const aSize = a.size || 0;
+				const bSize = b.size || 0;
+				return sortDirection === "asc" ? aSize - bSize : bSize - aSize;
+			});
+		}
+		files = files; // Trigger reactivity
+	}
+
+	function toggleSortDirection() {
+		sortDirection = sortDirection === "asc" ? "desc" : "asc";
+		sortFiles();
+	}
+
 	// Auto-load directory on mount
 	onMount(() => {
 		listDirectory();
@@ -469,6 +479,35 @@
 			</div>
 		</div>
 
+		<div class="form-group">
+			<label>Sort Files By:</label>
+			<div class="sort-options">
+				{#each sortOptions as option}
+					<div class="sort-option-container">
+						<label class="radio-option">
+							<input 
+								type="radio" 
+								name="sort" 
+								value={option.value} 
+								bind:group={sortBy}
+								on:change={sortFiles}
+							/>
+							<span class="radio-label">{option.label}</span>
+						</label>
+						{#if sortBy === option.value}
+							<button 
+								class="direction-toggle" 
+								on:click={toggleSortDirection}
+								title="Toggle sort direction"
+							>
+								{sortDirection === "asc" ? "↑" : "↓"}
+							</button>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		</div>
+
 		<div class="destination-preview">
 			<strong>Full Destination:</strong> {destinationPath}\{selectedSubfolder}
 			<br>
@@ -484,19 +523,15 @@
 				{loading ? 'Loading...' : 'List Directory'}
 			</button>
 
-			<button on:click={moveSelectedFiles} disabled={loading || selectedFiles.size === 0}>
-				{loading ? 'Moving...' : 'Move Selected Files'}
+			<button on:click={moveSelectedFile} disabled={loading || !selectedFile}>
+				{loading ? 'Moving...' : 'Move Selected File'}
 			</button>
 
-			<button on:click={copySelectedFiles} disabled={loading || selectedFiles.size === 0}>
-				{loading ? 'Copying...' : 'Copy Selected Files'}
+			<button on:click={copySelectedFile} disabled={loading || !selectedFile}>
+				{loading ? 'Copying...' : 'Copy Selected File'}
 			</button>
 
-			<button on:click={selectAllFiles} disabled={loading || files.length === 0}>
-				Select All Videos
-			</button>
-
-			<button on:click={clearSelection} disabled={loading || selectedFiles.size === 0}>
+			<button on:click={clearSelection} disabled={loading || !selectedFile}>
 				Clear Selection
 			</button>
 		</div>
@@ -512,13 +547,13 @@
 		<div class="file-list">
 			<h3>📂 Contents of: {sourcePath}</h3>
 			<div class="selection-info">
-				Selected: {selectedFiles.size} file(s)
+				Selected: {selectedFile ? files.find(f => f.path === selectedFile)?.name || 'None' : 'None'}
 			</div>
 			<div class="file-grid">
 				{#each files as file}
-					<div class="file-item" class:selected={selectedFiles.has(file.path)} on:click={() => toggleFileSelection(file)}>
-						<div class="file-checkbox">
-							<input type="checkbox" checked={selectedFiles.has(file.path)} on:change={() => toggleFileSelection(file)} />
+					<div class="file-item" class:selected={selectedFile === file.path} on:click={() => selectFile(file)}>
+						<div class="file-radio">
+							<input type="radio" name="fileSelection" value={file.path} checked={selectedFile === file.path} on:change={() => selectFile(file)} />
 						</div>
 						
 						{#if !file.is_dir && isVideoFile(file.name)}
@@ -650,6 +685,40 @@
 		flex-wrap: wrap;
 		gap: 1rem;
 		margin-top: 0.5rem;
+	}
+
+	.sort-options {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		margin-top: 0.5rem;
+	}
+
+	.sort-option-container {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.direction-toggle {
+		padding: 0.25rem 0.5rem;
+		background: #007acc;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.8rem;
+		font-weight: bold;
+		transition: background-color 0.2s;
+		min-width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.direction-toggle:hover {
+		background: #005a9e;
 	}
 
 	.radio-option {
@@ -785,12 +854,12 @@
 		background: #e3f2fd;
 	}
 
-	.file-checkbox {
+	.file-radio {
 		margin-right: 0.5rem;
 		margin-top: 0.25rem;
 	}
 
-	.file-checkbox input[type="checkbox"] {
+	.file-radio input[type="radio"] {
 		width: auto;
 		margin: 0;
 		cursor: pointer;
