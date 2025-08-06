@@ -425,14 +425,14 @@
 		sortFiles();
 	}
 
-	// Auto-load directory on mount
-	onMount(() => {
-		listDirectory();
-	});
+	// Auto-load directory on mount - REMOVED
+	// Directory will only load when "List Directory" button is clicked
 </script>
 
 <main class="container">
 	<h1>📁 Directory File Manager</h1>
+
+	<h2>File Moving is only possible after all thumbails are loaded :)</h2>
 
 	<div class="controls">
 		<div class="form-group">
@@ -638,6 +638,10 @@
 		text-align: center;
 		color: #333;
 		margin-bottom: 2rem;
+	}
+
+	h2 {
+		text-align: center;
 	}
 
 	.controls {
