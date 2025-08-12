@@ -2,6 +2,15 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { onMount } from "svelte";
 
+	interface VideoMetadata {
+		width?: number;
+		height?: number;
+		duration?: number;
+		bitrate?: string;
+		codec?: string;
+		fps?: number;
+	}
+
 	interface FileInfo {
 		name: string;
 		path: string;
@@ -12,6 +21,7 @@
 		thumbnailError?: boolean;
 		isGeneratingThumbnail?: boolean;
 		currentFrameIndex?: number;
+		videoMetadata?: VideoMetadata;
 	}
 
 	let sourcePath = "X:\\Innhealth\\Gait\\L";
@@ -85,6 +95,9 @@
 				// Generate thumbnails for video files
 				if (!file.is_dir && isVideoFile(file.name)) {
 					const fileHash = await generateFileHash(file.path);
+					
+					// Get video metadata
+					fileInfo.videoMetadata = await getVideoMetadata(file.path);
 					
 					// Check if we have cached thumbnails for this file
 					if (thumbnailCache.has(fileHash)) {
@@ -318,6 +331,9 @@
 				if (!file.is_dir && isVideoFile(file.name)) {
 					const fileHash = await generateFileHash(file.path);
 					
+					// Get video metadata
+					fileInfo.videoMetadata = await getVideoMetadata(file.path);
+					
 					// Check if we have cached thumbnails for this file
 					if (thumbnailCache.has(fileHash)) {
 						fileInfo.thumbnails = thumbnailCache.get(fileHash);
@@ -511,6 +527,28 @@
 		const videoExtensions = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm', '.m4v'];
 		const lowerFilename = filename.toLowerCase();
 		return videoExtensions.some(ext => lowerFilename.endsWith(ext));
+	}
+
+	async function getVideoMetadata(filePath: string): Promise<VideoMetadata | undefined> {
+		try {
+			const metadata = await invoke("get_video_metadata", { filePath }) as VideoMetadata;
+			return metadata;
+		} catch (error) {
+			console.warn('Failed to get video metadata:', error);
+			return undefined;
+		}
+	}
+
+	function getVideoQualityLabel(width?: number, height?: number): string {
+		if (!width || !height) return "Unknown";
+		
+		if (width >= 3840 || height >= 2160) return "4K";
+		if (width >= 1920 || height >= 1080) return "1080p";
+		if (width >= 1280 || height >= 720) return "720p";
+		if (width >= 854 || height >= 480) return "480p";
+		if (width >= 640 || height >= 360) return "360p";
+		
+		return `${width}x${height}`;
 	}
 
 	async function retryThumbnail(filePath: string) {
@@ -835,6 +873,17 @@
 								{/if}
 								{#if file.modified}
 									<span class="file-date">{formatDate(file.modified)}</span>
+								{/if}
+								{#if !file.is_dir && isVideoFile(file.name) && file.videoMetadata}
+									<span class="video-quality">
+										{getVideoQualityLabel(file.videoMetadata.width, file.videoMetadata.height)}
+									</span>
+									{#if file.videoMetadata.fps}
+										<span class="video-fps">{file.videoMetadata.fps.toFixed(1)}fps</span>
+									{/if}
+									{#if file.videoMetadata.codec}
+										<span class="video-codec">{file.videoMetadata.codec.toUpperCase()}</span>
+									{/if}
 								{/if}
 							</div>
 						</div>
@@ -1284,6 +1333,32 @@
 		background: #f1f3f4;
 		padding: 0.25rem 0.5rem;
 		border-radius: 4px;
+	}
+
+	.video-quality {
+		background: #e3f2fd;
+		color: #1976d2;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		font-weight: 600;
+		font-size: 0.75rem;
+	}
+
+	.video-fps {
+		background: #f3e5f5;
+		color: #7b1fa2;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.75rem;
+	}
+
+	.video-codec {
+		background: #e8f5e8;
+		color: #2e7d32;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		font-weight: 500;
 	}
 
 	.empty-state {

@@ -13,6 +13,16 @@ pub struct FileInfo {
     modified: Option<u64>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VideoMetadata {
+    width: Option<u32>,
+    height: Option<u32>,
+    duration: Option<f64>,
+    bitrate: Option<String>,
+    codec: Option<String>,
+    fps: Option<f32>,
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -278,6 +288,94 @@ async fn generate_video_thumbnails(file_path: String) -> Result<Vec<String>, Str
     Ok(thumbnails)
 }
 
+#[tauri::command]
+async fn get_video_metadata(file_path: String) -> Result<VideoMetadata, String> {
+    let output = Command::new("ffprobe")
+        .args(&[
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            "-show_format",
+            &file_path
+        ])
+        .output();
+    
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                let json_str = String::from_utf8_lossy(&output.stdout);
+                
+                // Parse the JSON response
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    let mut metadata = VideoMetadata {
+                        width: None,
+                        height: None,
+                        duration: None,
+                        bitrate: None,
+                        codec: None,
+                        fps: None,
+                    };
+                    
+                    // Extract video stream information
+                    if let Some(streams) = json["streams"].as_array() {
+                        for stream in streams {
+                            if stream["codec_type"] == "video" {
+                                // Get resolution
+                                if let Some(width) = stream["width"].as_u64() {
+                                    metadata.width = Some(width as u32);
+                                }
+                                if let Some(height) = stream["height"].as_u64() {
+                                    metadata.height = Some(height as u32);
+                                }
+                                
+                                // Get codec
+                                if let Some(codec) = stream["codec_name"].as_str() {
+                                    metadata.codec = Some(codec.to_string());
+                                }
+                                
+                                // Get FPS
+                                if let Some(fps_str) = stream["r_frame_rate"].as_str() {
+                                    let parts: Vec<&str> = fps_str.split('/').collect();
+                                    if parts.len() == 2 {
+                                        if let (Ok(num), Ok(den)) = (parts[0].parse::<f32>(), parts[1].parse::<f32>()) {
+                                            if den != 0.0 {
+                                                metadata.fps = Some(num / den);
+                                            }
+                                        }
+                                    }
+                                }
+                                break; // We only need the first video stream
+                            }
+                        }
+                    }
+                    
+                    // Extract format information
+                    if let Some(format) = json["format"].as_object() {
+                        // Get duration
+                        if let Some(duration_str) = format["duration"].as_str() {
+                            if let Ok(duration) = duration_str.parse::<f64>() {
+                                metadata.duration = Some(duration);
+                            }
+                        }
+                        
+                        // Get bitrate
+                        if let Some(bitrate) = format["bit_rate"].as_str() {
+                            metadata.bitrate = Some(bitrate.to_string());
+                        }
+                    }
+                    
+                    Ok(metadata)
+                } else {
+                    Err("Failed to parse video metadata JSON".to_string())
+                }
+            } else {
+                Err("FFprobe command failed".to_string())
+            }
+        },
+        Err(e) => Err(format!("Failed to execute ffprobe: {}", e))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -291,7 +389,8 @@ pub fn run() {
             directory_exists,
             get_file_info,
             read_video_file,
-            generate_video_thumbnails
+            generate_video_thumbnails,
+            get_video_metadata
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
