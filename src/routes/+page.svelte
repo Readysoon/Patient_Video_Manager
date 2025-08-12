@@ -26,6 +26,10 @@
 	let sortBy = "name"; // Default sort by name
 	let sortDirection = "asc"; // Default sort direction
 
+	// Thumbnail caching system
+	let thumbnailCache = new Map<string, string[]>(); // Cache thumbnails by file hash
+	let pendingFileOperations = new Map<string, { type: string; sourcePath: string; destinationPath: string; thumbnails?: string[] }>(); // Track files being moved/copied
+
 	const subfolderOptions = [
 		"Calibration-Posture",
 		"Gait-4K", 
@@ -42,13 +46,25 @@
 		{ value: "size", label: "File Size" }
 	];
 
-	async function listDirectory() {
+	// Helper function to generate file hash
+	async function generateFileHash(filePath: string): Promise<string> {
+		try {
+			const fileInfo = await invoke("get_file_info", { filePath }) as any;
+			return `${fileInfo.size}-${fileInfo.modified}`;
+		} catch (e) {
+			// Fallback to path-based hash if metadata fails
+			return filePath;
+		}
+	}
+
+	// Smart refresh function that only regenerates thumbnails when necessary
+	async function smartRefreshDirectory() {
 		try {
 			loading = true;
 			result = "";
 			const rawFiles = await invoke("list_directory", { dirPath: sourcePath }) as FileInfo[];
 			
-			// Process files and generate thumbnails for video files
+			// Process files intelligently
 			files = [];
 			for (const file of rawFiles) {
 				const fileInfo: FileInfo = {
@@ -60,36 +76,67 @@
 
 				// Generate thumbnails for video files
 				if (!file.is_dir && isVideoFile(file.name)) {
-					fileInfo.isGeneratingThumbnail = true;
-					files.push(fileInfo);
+					const fileHash = await generateFileHash(file.path);
 					
-					// Generate thumbnails asynchronously
-					generateVideoThumbnails(file.path, fileInfo.name).then(thumbnails => {
-						if (thumbnails.length > 0) {
-							files = files.map(f => 
-								f.path === file.path 
-									? { ...f, thumbnails, isGeneratingThumbnail: false, currentFrameIndex: 0 }
-									: f
-							);
+					// Check if we have cached thumbnails for this file
+					if (thumbnailCache.has(fileHash)) {
+						fileInfo.thumbnails = thumbnailCache.get(fileHash);
+						fileInfo.isGeneratingThumbnail = false;
+						files.push(fileInfo);
+						
+						// Start frame cycling for this video
+						startFrameCycling(file.path);
+					} else {
+						// Check if this file was just moved and we have its thumbnails
+						const pendingOp = pendingFileOperations.get(fileHash);
+						if (pendingOp && pendingOp.type === 'move' && pendingOp.thumbnails) {
+							fileInfo.thumbnails = pendingOp.thumbnails;
+							fileInfo.isGeneratingThumbnail = false;
+							files.push(fileInfo);
+							
+							// Cache the thumbnails for future use
+							thumbnailCache.set(fileHash, pendingOp.thumbnails);
+							// Clean up the pending operation
+							pendingFileOperations.delete(fileHash);
 							
 							// Start frame cycling for this video
 							startFrameCycling(file.path);
 						} else {
-							// No thumbnails generated, show error state
-							files = files.map(f => 
-								f.path === file.path 
-									? { ...f, thumbnailError: true, isGeneratingThumbnail: false }
-									: f
-							);
+							// Only generate thumbnails for genuinely new files
+							fileInfo.isGeneratingThumbnail = true;
+							files.push(fileInfo);
+							
+							// Generate thumbnails asynchronously
+							generateVideoThumbnails(file.path, fileInfo.name).then(thumbnails => {
+								if (thumbnails.length > 0) {
+									// Cache the thumbnails
+									thumbnailCache.set(fileHash, thumbnails);
+									files = files.map(f => 
+										f.path === file.path 
+											? { ...f, thumbnails, isGeneratingThumbnail: false, currentFrameIndex: 0 }
+											: f
+									);
+									
+									// Start frame cycling for this video
+									startFrameCycling(file.path);
+								} else {
+									// No thumbnails generated, show error state
+									files = files.map(f => 
+										f.path === file.path 
+											? { ...f, thumbnailError: true, isGeneratingThumbnail: false }
+											: f
+									);
+								}
+							}).catch(error => {
+								console.warn('Failed to generate thumbnails for', file.name, error);
+								files = files.map(f => 
+									f.path === file.path 
+										? { ...f, thumbnailError: true, isGeneratingThumbnail: false }
+										: f
+								);
+							});
 						}
-					}).catch(error => {
-						console.warn('Failed to generate thumbnails for', file.name, error);
-						files = files.map(f => 
-							f.path === file.path 
-								? { ...f, thumbnailError: true, isGeneratingThumbnail: false }
-								: f
-						);
-					});
+					}
 				} else {
 					files.push(fileInfo);
 				}
@@ -99,9 +146,6 @@
 		} finally {
 			loading = false;
 		}
-		
-		// Sort files after loading
-		sortFiles();
 	}
 
 	async function generateVideoThumbnails(videoPath: string, fileName: string): Promise<string[]> {
@@ -246,6 +290,82 @@
 		}
 	}
 
+	async function listDirectory() {
+		try {
+			loading = true;
+			result = "";
+			const rawFiles = await invoke("list_directory", { dirPath: sourcePath }) as FileInfo[];
+			
+			// Process files and generate thumbnails for video files
+			files = [];
+			for (const file of rawFiles) {
+				const fileInfo: FileInfo = {
+					...file,
+					thumbnailError: false,
+					isGeneratingThumbnail: false,
+					currentFrameIndex: 0
+				};
+
+				// Generate thumbnails for video files
+				if (!file.is_dir && isVideoFile(file.name)) {
+					const fileHash = await generateFileHash(file.path);
+					
+					// Check if we have cached thumbnails for this file
+					if (thumbnailCache.has(fileHash)) {
+						fileInfo.thumbnails = thumbnailCache.get(fileHash);
+						fileInfo.isGeneratingThumbnail = false;
+						files.push(fileInfo);
+						
+						// Start frame cycling for this video
+						startFrameCycling(file.path);
+					} else {
+						fileInfo.isGeneratingThumbnail = true;
+						files.push(fileInfo);
+						
+						// Generate thumbnails asynchronously
+						generateVideoThumbnails(file.path, fileInfo.name).then(thumbnails => {
+							if (thumbnails.length > 0) {
+								// Cache the thumbnails
+								thumbnailCache.set(fileHash, thumbnails);
+								files = files.map(f => 
+									f.path === file.path 
+										? { ...f, thumbnails, isGeneratingThumbnail: false, currentFrameIndex: 0 }
+										: f
+								);
+								
+								// Start frame cycling for this video
+								startFrameCycling(file.path);
+							} else {
+								// No thumbnails generated, show error state
+								files = files.map(f => 
+									f.path === file.path 
+										? { ...f, thumbnailError: true, isGeneratingThumbnail: false }
+										: f
+								);
+							}
+						}).catch(error => {
+							console.warn('Failed to generate thumbnails for', file.name, error);
+							files = files.map(f => 
+								f.path === file.path 
+									? { ...f, thumbnailError: true, isGeneratingThumbnail: false }
+									: f
+							);
+						});
+					}
+				} else {
+					files.push(fileInfo);
+				}
+			}
+		} catch (e) {
+			result = `Error: ${e}`;
+		} finally {
+			loading = false;
+		}
+		
+		// Sort files after loading
+		sortFiles();
+	}
+
 	async function moveFile() {
 		if (!selectedFile) {
 			result = "Please select a file first";
@@ -272,12 +392,30 @@
 			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
+			// Store the file's thumbnails before moving
+			const existingThumbnails = file.thumbnails;
+			const fileHash = await generateFileHash(file.path);
+			
+			// Mark this file as being moved
+			if (existingThumbnails) {
+				pendingFileOperations.set(fileHash, {
+					type: 'move',
+					sourcePath: file.path,
+					destinationPath: destPath,
+					thumbnails: existingThumbnails
+				});
+			}
+			
 			result = await invoke("move_file", { 
 				sourcePath: file.path, 
 				destinationPath: destPath
 			});
-			// Refresh the list after moving
-			await listDirectory();
+			
+			// Use smart refresh instead of full directory refresh
+			await smartRefreshDirectory();
+			
+			// Sort files after refresh
+			sortFiles();
 		} catch (e) {
 			result = `Error: ${e}`;
 		} finally {
@@ -432,7 +570,7 @@
 <main class="container">
 	<h1>📁 Directory File Manager</h1>
 
-	<h2>File Moving is only possible after all thumbails are loaded :)</h2>
+	<h2>File Moving only possible after all thumbnails are loaded :)</h2>
 
 	<div class="controls">
 		<div class="form-group">
