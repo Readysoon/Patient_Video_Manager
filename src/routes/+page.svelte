@@ -16,7 +16,8 @@
 
 	let sourcePath = "X:\\Innhealth\\Gait\\L";
 	let destinationPath = "X:\\Innhealth\\Gait\\IH-0777-B";
-	let selectedSubfolder = "Gait-4K"; // Default selection
+	// Reactive default subfolder that updates when destinationPath changes
+	$: selectedSubfolder = `${destinationPath.split('\\').pop() || ''}-Gait-4K`;
 	let selectedSide = "L"; // Default side selection
 	let files: FileInfo[] = [];
 	let result = "";
@@ -30,13 +31,20 @@
 	let thumbnailCache = new Map<string, string[]>(); // Cache thumbnails by file hash
 	let pendingFileOperations = new Map<string, { type: string; sourcePath: string; destinationPath: string; thumbnails?: string[] }>(); // Track files being moved/copied
 
-	const subfolderOptions = [
-		"Calibration-Posture",
-		"Gait-4K", 
-		"Gait-720p",
-		"Sitting",
-		"Timedupandgo3m"
+	// Subfolder status tracking
+	let subfolderStatus = new Map<string, { exists: boolean; hasL: boolean; hasR: boolean; fileCount: number }>();
+
+	// Reactive subfolder options that update when destinationPath changes
+	$: subfolderOptions = [
+		`${destinationPath.split('\\').pop() || ''}-Calibration-Posture`,
+		`${destinationPath.split('\\').pop() || ''}-Gait-4K`, 
+		`${destinationPath.split('\\').pop() || ''}-Gait-720p`,
+		`${destinationPath.split('\\').pop() || ''}-Sitting`,
+		`${destinationPath.split('\\').pop() || ''}-Timedupandgo3m`
 	];
+
+	// Check subfolder status when destination path changes - REMOVED
+	// Status will only update after move/copy operations
 
 	const sideOptions = ["L", "R"];
 	
@@ -221,14 +229,11 @@
 			// Create full destination path with selected subfolder
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
 			
-			// Extract folder name from destination path
-			const folderName = destinationPath.split('\\').pop() || '';
-			
 			// Get file extension
 			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
 			
-			// Create new filename with side prefix, folder name, and subfolder suffix
-			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			// Create new filename with side prefix and subfolder (which already includes folder name)
+			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
 			await invoke("move_file", { 
@@ -243,6 +248,9 @@
 
 			// Refresh the list after moving
 			await listDirectory();
+			
+			// Refresh subfolder status after moving
+			await checkSubfolderStatus();
 		} catch (e) {
 			result = `Error: ${e}`;
 		} finally {
@@ -267,14 +275,11 @@
 			// Create full destination path with selected subfolder
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
 			
-			// Extract folder name from destination path
-			const folderName = destinationPath.split('\\').pop() || '';
-			
 			// Get file extension
 			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
 			
-			// Create new filename with side prefix, folder name, and subfolder suffix
-			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			// Create new filename with side prefix and subfolder (which already includes folder name)
+			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
 			await invoke("copy_file", { 
@@ -283,6 +288,9 @@
 			});
 			
 			result = `Successfully copied ${file.name} to ${fullDestinationPath}`;
+			
+			// Refresh subfolder status after copying
+			await checkSubfolderStatus();
 		} catch (e) {
 			result = `Error: ${e}`;
 		} finally {
@@ -382,14 +390,11 @@
 			loading = true;
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
 			
-			// Extract folder name from destination path
-			const folderName = destinationPath.split('\\').pop() || '';
-			
 			// Get file extension
 			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
 			
-			// Create new filename with side prefix, folder name, and subfolder suffix
-			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			// Create new filename with side prefix and subfolder (which already includes folder name)
+			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
 			// Store the file's thumbnails before moving
@@ -413,6 +418,9 @@
 			
 			// Use smart refresh instead of full directory refresh
 			await smartRefreshDirectory();
+			
+			// Refresh subfolder status after moving
+			await checkSubfolderStatus();
 			
 			// Sort files after refresh
 			sortFiles();
@@ -439,20 +447,20 @@
 			loading = true;
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
 			
-			// Extract folder name from destination path
-			const folderName = destinationPath.split('\\').pop() || '';
-			
 			// Get file extension
 			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
 			
-			// Create new filename with side prefix, folder name, and subfolder suffix
-			const newFileName = `${selectedSide}-${folderName}-${selectedSubfolder}${fileExtension}`;
+			// Create new filename with side prefix and subfolder (which already includes folder name)
+			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
 			result = await invoke("copy_file", { 
 				sourcePath: file.path, 
 				destinationPath: destPath
 			});
+			
+			// Refresh subfolder status after copying
+			await checkSubfolderStatus();
 		} catch (e) {
 			result = `Error: ${e}`;
 		} finally {
@@ -565,6 +573,59 @@
 
 	// Auto-load directory on mount - REMOVED
 	// Directory will only load when "List Directory" button is clicked
+
+	async function checkSubfolderStatus() {
+		for (const subfolder of subfolderOptions) {
+			try {
+				const exists = await invoke("directory_exists", { dirPath: `${destinationPath}\\${subfolder}` }) as boolean;
+				subfolderStatus.set(subfolder, { exists, hasL: false, hasR: false, fileCount: 0 });
+				// Trigger reactivity by reassigning the Map
+				subfolderStatus = new Map(subfolderStatus);
+
+				if (exists) {
+					// Check for L and R video files within the subfolder
+					const files = await invoke("list_directory", { dirPath: `${destinationPath}\\${subfolder}` }) as FileInfo[];
+					let fileCount = 0;
+					let hasL = false;
+					let hasR = false;
+					
+					console.log(`Checking subfolder: ${subfolder}`);
+					console.log(`Files found:`, files.map(f => f.name));
+					
+					for (const file of files) {
+						if (!file.is_dir && isVideoFile(file.name)) {
+							fileCount++;
+							console.log(`Video file found: ${file.name}`);
+							
+							// Check for files starting with L- or R- (the new naming pattern)
+							const lowerName = file.name.toLowerCase();
+							console.log(`Checking file: ${file.name} (lowercase: ${lowerName})`);
+							
+							if (lowerName.startsWith('l-')) {
+								console.log(`Found L file: ${file.name}`);
+								hasL = true;
+							} else if (lowerName.startsWith('r-')) {
+								console.log(`Found R file: ${file.name}`);
+								hasR = true;
+							}
+						}
+					}
+					
+					console.log(`Final status for ${subfolder}: fileCount=${fileCount}, hasL=${hasL}, hasR=${hasR}`);
+					
+					// Update file count and L/R status
+					subfolderStatus.set(subfolder, { exists, hasL, hasR, fileCount });
+					// Trigger reactivity by reassigning the Map
+					subfolderStatus = new Map(subfolderStatus);
+				}
+			} catch (e) {
+				console.warn(`Could not check status for subfolder ${subfolder}:`, e);
+				subfolderStatus.set(subfolder, { exists: false, hasL: false, hasR: false, fileCount: 0 });
+				// Trigger reactivity by reassigning the Map
+				subfolderStatus = new Map(subfolderStatus);
+			}
+		}
+	}
 </script>
 
 <main class="container">
@@ -604,7 +665,8 @@
 			<label>Destination Subfolder:</label>
 			<div class="subfolder-options">
 				{#each subfolderOptions as option}
-					<label class="radio-option">
+					{@const status = subfolderStatus.get(option) || { exists: false, hasL: false, hasR: false, fileCount: 0 }}
+					<label class="radio-option subfolder-option" class:exists={status.exists}>
 						<input 
 							type="radio" 
 							name="subfolder" 
@@ -612,6 +674,24 @@
 							bind:group={selectedSubfolder}
 						/>
 						<span class="radio-label">{option}</span>
+						<div class="subfolder-status">
+							{#if status.exists}
+								<span class="status-indicator exists">📁</span>
+								<span class="status-indicator file-count">{status.fileCount}/2</span>
+								{#if status.hasL}
+									<span class="status-indicator has-l">L</span>
+								{/if}
+								{#if status.hasR}
+									<span class="status-indicator has-r">R</span>
+								{/if}
+								{#if status.hasL && status.hasR}
+									<span class="status-indicator complete">✅</span>
+								{/if}
+							{:else}
+								<span class="status-indicator missing">❌</span>
+								<span class="status-indicator file-count">0/2</span>
+							{/if}
+						</div>
 					</label>
 				{/each}
 			</div>
@@ -649,7 +729,7 @@
 		<div class="destination-preview">
 			<strong>Full Destination:</strong> {destinationPath}\{selectedSubfolder}
 			<br>
-			<strong>File Naming Pattern:</strong> {selectedSide}-{destinationPath.split('\\').pop()}-{selectedSubfolder}.MOV
+			<strong>File Naming Pattern:</strong> {selectedSide}-{selectedSubfolder}.MOV
 		</div>
 
 		<div class="buttons">
@@ -659,6 +739,10 @@
 			
 			<button on:click={listDirectory} disabled={loading}>
 				{loading ? 'Loading...' : 'List Directory'}
+			</button>
+
+			<button on:click={checkSubfolderStatus} disabled={loading}>
+				{loading ? 'Checking...' : 'Refresh Subfolder Status'}
 			</button>
 
 			<button on:click={moveSelectedFile} disabled={loading || !selectedFile}>
@@ -827,6 +911,63 @@
 		flex-wrap: wrap;
 		gap: 1rem;
 		margin-top: 0.5rem;
+	}
+
+	.subfolder-option {
+		position: relative;
+		min-width: 200px;
+	}
+
+	.subfolder-status {
+		display: flex;
+		gap: 0.25rem;
+		margin-left: 0.5rem;
+		align-items: center;
+	}
+
+	.status-indicator {
+		font-size: 0.8rem;
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
+		font-weight: bold;
+	}
+
+	.status-indicator.exists {
+		background: #e3f2fd;
+		color: #1976d2;
+	}
+
+	.status-indicator.has-l {
+		background: #e8f5e8;
+		color: #2e7d32;
+	}
+
+	.status-indicator.has-r {
+		background: #fff3e0;
+		color: #f57c00;
+	}
+
+	.status-indicator.complete {
+		background: #e8f5e8;
+		color: #2e7d32;
+		font-size: 1rem;
+	}
+
+	.status-indicator.missing {
+		background: #ffebee;
+		color: #c62828;
+	}
+
+	.status-indicator.file-count {
+		background: #f5f5f5;
+		color: #666;
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.subfolder-option.exists {
+		border-color: #4caf50;
+		background: #f1f8e9;
 	}
 
 	.sort-options {

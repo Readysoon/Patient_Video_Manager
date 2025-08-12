@@ -103,6 +103,12 @@ async fn file_exists(file_path: String) -> bool {
 }
 
 #[tauri::command]
+async fn directory_exists(dir_path: String) -> bool {
+    let path = Path::new(&dir_path);
+    path.exists() && path.is_dir()
+}
+
+#[tauri::command]
 async fn get_file_info(file_path: String) -> Result<serde_json::Value, String> {
     let path = Path::new(&file_path);
     if !path.exists() { return Err(format!("File does not exist: {}", file_path)); }
@@ -282,6 +288,7 @@ pub fn run() {
             move_file,
             copy_file,
             file_exists,
+            directory_exists,
             get_file_info,
             read_video_file,
             generate_video_thumbnails
