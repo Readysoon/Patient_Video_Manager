@@ -423,6 +423,17 @@
 		result = "Selection cleared";
 	}
 
+	// Function to open video files with system default player
+	async function openVideoFile(filePath: string) {
+		try {
+			// Open the file with the system's default application
+			await invoke("open_file", { filePath });
+		} catch (error) {
+			console.error('Failed to open video file:', error);
+			result = `Error opening video: ${error}`;
+		}
+	}
+
 	function formatFileSize(bytes?: number): string {
 		if (!bytes) return "N/A";
 		const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -728,7 +739,12 @@
 			</div>
 			<div class="file-grid">
 				{#each files as file}
-					<div class="file-item" class:selected={selectedFile === file.path} on:click={() => selectFile(file)}>
+					<div 
+						class="file-item" 
+						class:selected={selectedFile === file.path} 
+						on:click={() => selectFile(file)}
+						on:dblclick={() => !file.is_dir && isVideoFile(file.name) ? openVideoFile(file.path) : null}
+					>
 						<div class="file-radio">
 							<input type="radio" name="fileSelection" value={file.path} checked={selectedFile === file.path} on:change={() => selectFile(file)} />
 						</div>

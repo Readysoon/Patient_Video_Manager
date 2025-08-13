@@ -289,6 +289,37 @@ async fn generate_video_thumbnails(file_path: String) -> Result<Vec<String>, Str
 }
 
 #[tauri::command]
+async fn open_file(file_path: String) -> Result<(), String> {
+    use std::process::Command;
+    
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(&["/C", "start", "", &file_path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_video_metadata(file_path: String) -> Result<VideoMetadata, String> {
     let output = Command::new("ffprobe")
         .args(&[
@@ -390,7 +421,8 @@ pub fn run() {
             get_file_info,
             read_video_file,
             generate_video_thumbnails,
-            get_video_metadata
+            get_video_metadata,
+            open_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
