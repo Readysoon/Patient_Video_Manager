@@ -225,92 +225,6 @@
 		}
 	}
 
-	async function moveSelectedFile() {
-		if (!selectedFile) {
-			result = "Please select a file first";
-			return;
-		}
-
-		try {
-			loading = true;
-			const file = files.find(f => f.path === selectedFile);
-			if (!file || file.is_dir) {
-				result = "Please select a valid file";
-				return;
-			}
-
-			// Create full destination path with selected subfolder
-			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
-			
-			// Get file extension
-			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
-			
-			// Create new filename with side prefix and subfolder (which already includes folder name)
-			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
-			const destPath = `${fullDestinationPath}\\${newFileName}`;
-			
-			await invoke("move_file", { 
-				sourcePath: file.path, 
-				destinationPath: destPath
-			});
-			
-			// Clear selection after moving
-			selectedFile = null;
-
-			result = `Successfully moved ${file.name} to ${fullDestinationPath}`;
-
-			// Refresh the list after moving
-			await listDirectory();
-			
-			// Refresh subfolder status after moving
-			await checkSubfolderStatus();
-		} catch (e) {
-			result = `Error: ${e}`;
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function copySelectedFile() {
-		if (!selectedFile) {
-			result = "Please select a file first";
-			return;
-		}
-
-		try {
-			loading = true;
-			const file = files.find(f => f.path === selectedFile);
-			if (!file || file.is_dir) {
-				result = "Please select a valid file";
-				return;
-			}
-
-			// Create full destination path with selected subfolder
-			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
-			
-			// Get file extension
-			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
-			
-			// Create new filename with side prefix and subfolder (which already includes folder name)
-			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
-			const destPath = `${fullDestinationPath}\\${newFileName}`;
-			
-			await invoke("copy_file", { 
-				sourcePath: file.path, 
-				destinationPath: destPath
-			});
-			
-			result = `Successfully copied ${file.name} to ${fullDestinationPath}`;
-			
-			// Refresh subfolder status after copying
-			await checkSubfolderStatus();
-		} catch (e) {
-			result = `Error: ${e}`;
-		} finally {
-			loading = false;
-		}
-	}
-
 	async function listDirectory() {
 		try {
 			loading = true;
@@ -448,8 +362,12 @@
 	}
 
 	async function copyFile() {
-		if (!selectedFile) {
-			result = "Please select a file first";
+		console.log("copyFile function called");
+		console.log("Current selections:", { selectedFile, selectedSide, selectedSubfolder });
+		
+		if (!selectedFile || !selectedSide || !selectedSubfolder) {
+			console.log("Missing required selections");
+			result = "Please select a file, side, and subfolder first.";
 			return;
 		}
 
@@ -462,15 +380,15 @@
 		try {
 			loading = true;
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
-			
-			// Get file extension
-			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
 
-			console.log(file.name);
+			console.log(`File name: ${file.name}`);
 			
 			// Create new filename with side prefix and subfolder (which already includes folder name)
-			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
+			const newFileName = `${selectedSide}-${selectedSubfolder}-${file.name}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
+			
+			console.log(`New filename: ${newFileName}`);
+			console.log(`Destination path: ${destPath}`);
 			
 			result = await invoke("copy_file", { 
 				sourcePath: file.path, 
@@ -629,29 +547,29 @@
 					let hasL = false;
 					let hasR = false;
 					
-					console.log(`Checking subfolder: ${subfolder}`);
-					console.log(`Files found:`, files.map(f => f.name));
+					// console.log(`Checking subfolder: ${subfolder}`);
+					// console.log(`Files found:`, files.map(f => f.name));
 					
 					for (const file of files) {
 						if (!file.is_dir && isVideoFile(file.name)) {
 							fileCount++;
-							console.log(`Video file found: ${file.name}`);
+							// console.log(`Video file found: ${file.name}`);
 							
 							// Check for files starting with L- or R- (the new naming pattern)
 							const lowerName = file.name.toLowerCase();
-							console.log(`Checking file: ${file.name} (lowercase: ${lowerName})`);
+							// console.log(`Checking file: ${file.name} (lowercase: ${lowerName})`);
 							
 							if (lowerName.startsWith('l-')) {
-								console.log(`Found L file: ${file.name}`);
+								// console.log(`Found L file: ${file.name}`);
 								hasL = true;
 							} else if (lowerName.startsWith('r-')) {
-								console.log(`Found R file: ${file.name}`);
+								// console.log(`Found R file: ${file.name}`);
 								hasR = true;
 							}
 						}
 					}
 					
-					console.log(`Final status for ${subfolder}: fileCount=${fileCount}, hasL=${hasL}, hasR=${hasR}`);
+					// console.log(`Final status for ${subfolder}: fileCount=${fileCount}, hasL=${hasL}, hasR=${hasR}`);
 					
 					// Update file count and L/R status
 					subfolderStatus.set(subfolder, { exists, hasL, hasR, fileCount });
