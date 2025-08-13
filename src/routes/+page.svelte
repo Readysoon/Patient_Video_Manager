@@ -465,6 +465,8 @@
 			
 			// Get file extension
 			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
+
+			console.log(file.name);
 			
 			// Create new filename with side prefix and subfolder (which already includes folder name)
 			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
@@ -783,11 +785,11 @@
 				{loading ? 'Checking...' : 'Refresh Subfolder Status'}
 			</button>
 
-			<button on:click={moveSelectedFile} disabled={loading || !selectedFile}>
+			<button on:click={moveFile} disabled={loading || !selectedFile}>
 				{loading ? 'Moving...' : 'Move Selected File'}
 			</button>
 
-			<button on:click={copySelectedFile} disabled={loading || !selectedFile}>
+			<button on:click={copyFile} disabled={loading || !selectedFile}>
 				{loading ? 'Copying...' : 'Copy Selected File'}
 			</button>
 
