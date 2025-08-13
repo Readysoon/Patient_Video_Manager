@@ -319,12 +319,9 @@
 		try {
 			loading = true;
 			const fullDestinationPath = `${destinationPath}\\${selectedSubfolder}`;
-			
-			// Get file extension
-			const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
-			
+					
 			// Create new filename with side prefix and subfolder (which already includes folder name)
-			const newFileName = `${selectedSide}-${selectedSubfolder}${fileExtension}`;
+			const newFileName = `${selectedSide}-${selectedSubfolder}-${file.name}`;
 			const destPath = `${fullDestinationPath}\\${newFileName}`;
 			
 			// Store the file's thumbnails before moving
