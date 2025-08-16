@@ -25,7 +25,9 @@
 	}
 
 	let sourcePath = "X:\\Innhealth\\Gait\\L";
-	let destinationPath = "X:\\Innhealth\\Gait\\IH-0777-B";
+	let patientNumber = "0777"; // Just the number between IH- and -B
+	// Reactive destination path that constructs the full path from the patient number
+	$: destinationPath = `X:\\Innhealth\\Gait\\IH-${patientNumber}-B`;
 	// Reactive default subfolder that updates when destinationPath changes
 	$: selectedSubfolder = `${destinationPath.split('\\').pop() || ''}-Gait-4K`;
 	let selectedSide = "L"; // Default side selection
@@ -605,61 +607,69 @@
 			<input id="source" bind:value={sourcePath} placeholder="Enter source directory path" />
 		</div>
 
-		<div class="form-group">
-			<label for="destination">Destination Directory:</label>
-			<input id="destination" bind:value={destinationPath} placeholder="Enter destination directory path" />
-		</div>
-
-		<div class="form-group">
-			<label>Side Selection:</label>
-			<div class="side-options">
-				{#each sideOptions as option}
-					<label class="radio-option side-radio">
+		<div class="sticky-controls">
+			<div class="form-group">
+				<label>Side Selection & Patient Number:</label>
+				<div class="side-and-patient">
+					<div class="side-options">
+						{#each sideOptions as option}
+							<label class="radio-option side-radio">
+								<input 
+									type="radio" 
+									name="side" 
+									value={option} 
+									bind:group={selectedSide}
+								/>
+								<span class="radio-label">{option}</span>
+							</label>
+						{/each}
+					</div>
+					<div class="patient-number-input">
+						<label for="patientNumber">Patient #:</label>
 						<input 
-							type="radio" 
-							name="side" 
-							value={option} 
-							bind:group={selectedSide}
+							id="patientNumber" 
+							bind:value={patientNumber} 
+							placeholder="0777" 
+							class="patient-input"
 						/>
-						<span class="radio-label">{option}</span>
-					</label>
-				{/each}
+					</div>
+				</div>
 			</div>
-		</div>
 
-		<div class="form-group">
-			<label>Destination Subfolder:</label>
-			<div class="subfolder-options">
-				{#each subfolderOptions as option}
-					{@const status = subfolderStatus.get(option) || { exists: false, hasL: false, hasR: false, fileCount: 0 }}
-					<label class="radio-option subfolder-option" class:exists={status.exists}>
-						<input 
-							type="radio" 
-							name="subfolder" 
-							value={option} 
-							bind:group={selectedSubfolder}
-						/>
-						<span class="radio-label">{option}</span>
-						<div class="subfolder-status">
-							{#if status.exists}
-								<span class="status-indicator exists">📁</span>
-								<span class="status-indicator file-count">{status.fileCount}/2</span>
-								{#if status.hasL}
-									<span class="status-indicator has-l">L</span>
+			<div class="form-group">
+				<label>Destination Subfolder:</label>
+				<div class="subfolder-options">
+					{#each subfolderOptions as option}
+						{@const status = subfolderStatus.get(option) || { exists: false, hasL: false, hasR: false, fileCount: 0 }}
+						<label class="radio-option subfolder-option" class:exists={status.exists}>
+							<input 
+								type="radio" 
+								name="subfolder" 
+								value={option} 
+								bind:group={selectedSubfolder}
+							/>
+							<span class="radio-label">{option}</span>
+							<div class="subfolder-status">
+								{#if status.exists}
+									<span class="status-indicator exists">📁</span>
+									<span class="status-indicator file-count">{status.fileCount}/2</span>
+									{#if status.hasL}
+										<span class="status-indicator has-l">L</span>
+									{/if}
+									{#if status.hasR}
+										<span class="status-indicator has-r">R</span>
+									{/if}
+									{#if status.hasL && status.hasR}
+										<span class="status-indicator complete">✅</span>
+									{/if}
+								{:else}
+									<span class="status-indicator missing">❌</span>
+									<span class="status-indicator file-count">0/2</span>
 								{/if}
-								{#if status.hasR}
-									<span class="status-indicator has-r">R</span>
-								{/if}
-								{#if status.hasL && status.hasR}
-									<span class="status-indicator complete">✅</span>
-								{/if}
-							{:else}
-								<span class="status-indicator missing">❌</span>
-								<span class="status-indicator file-count">0/2</span>
-							{/if}
-						</div>
-					</label>
-				{/each}
+							</div>
+						</label>
+					{/each}
+				</div>
 			</div>
 		</div>
 
@@ -855,6 +865,18 @@
 		border-radius: 8px;
 	}
 
+	.sticky-controls {
+		position: sticky;
+		top: 0;
+		z-index: 100;
+		background: #f8f9fa;
+		padding: 1rem;
+		border-radius: 8px;
+		margin: 1rem 0;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		border: 1px solid #e9ecef;
+	}
+
 	.form-group {
 		margin-bottom: 1rem;
 	}
@@ -875,10 +897,16 @@
 		font-size: 0.9rem;
 	}
 
+	.side-and-patient {
+		display: flex;
+		align-items: flex-end;
+		gap: 2rem;
+		margin-top: 0.5rem;
+	}
+
 	.side-options {
 		display: flex;
 		gap: 1rem;
-		margin-top: 0.5rem;
 	}
 
 	.side-radio {
@@ -886,6 +914,27 @@
 		justify-content: center;
 		font-size: 1.2rem;
 		font-weight: bold;
+	}
+
+	.patient-number-input {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.patient-number-input label {
+		font-size: 0.9rem;
+		margin-bottom: 0;
+	}
+
+	.patient-input {
+		width: 80px;
+		padding: 0.5rem;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		font-family: monospace;
+		font-size: 0.9rem;
+		text-align: center;
 	}
 
 	.subfolder-options {
